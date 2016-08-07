@@ -1,0 +1,96 @@
+---
+title: "Weightlifting Exercise Analysis"
+subtitle: "Practical Machine Learning Course Project"
+author: "Katherine Broecker"
+date: "August 7, 2016"
+output: html_document
+---
+###Introduction
+
+While much research has been completed around distinguishing between types of exercise activities and amounts of exercise time, little has been done around the concept of quality of exercise.  For this project we analyze weightlifting exercise data for proper form and quality of exercise. The data was downloaded from the Groupware Human Activity Recognition website (http://groupware.les.inf.puc-rio.br/har).
+
+This analysis uses machine learning techniques to build a prediction model. The variable we are attempting to predict is "classe". This variable contains letters A - E, which each represent a particular type/class of performance quality. A equates to proper form, while B - E are common mistakes in form. Six subjects each completed 10 repititions of five different lifts and the quality of the form was recorded using the "classe" variable. We will use this data to build a model to predict the form performance ("classe") of subjects in a hold out test dataset to judge the performance of our final model.
+
+###Data Preparation and Cleaning
+
+First, we download the data and read the files into R.
+
+```{r}
+library(RCurl)
+train <- getURL('https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv')
+test <- getURL('https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv')
+lift_train <- read.csv(textConnection(train), header=TRUE, na.strings = c("NA", "#DIV/0!", ""))
+lift_test <- read.csv(textConnection(test), header=TRUE, na.strings = c("NA", "#DIV/0!", ""))
+dim(lift_train)
+dim(lift_test)
+```
+
+In exploring the training data, we notice there are a lot of missing or NA values. In order to clean our data and provide the strongest variables for prediction, we remove variables with mostly all missing values. We are careful to perform any dataset transformations on both the training and holdout/test datasets. This reduces our variable count from 160 to 60.
+
+```{r}
+missing_col <- colnames(lift_test) [colSums(is.na(lift_test))>0]
+lift_train_clean <- lift_train[, !(names(lift_train) %in% missing_col)]
+lift_test_clean <- lift_test[, !(names(lift_test) %in% missing_col)]
+dim(lift_train_clean)
+dim(lift_test_clean)
+```
+
+Next, we will use the near zero variance function to identify and remove variables with little or no variation in their values. This reduces our variables further to 54.
+
+```{r}
+library(caret)
+nzv <- nearZeroVar(lift_test_clean, saveMetrics = TRUE)
+lift_test_clean <- lift_test_clean[, nzv$nzv==FALSE]
+lift_test_final <- lift_test_clean[, -(1:5), drop=FALSE]
+lift_train_clean <- lift_train_clean[, nzv$nzv==FALSE]
+lift_train_final <- lift_train_clean[, -(1:5), drop=FALSE]
+dim(lift_train_final)
+dim(lift_test_final)
+```
+
+###Data Partitioning
+
+Now we can set our holdout/testing dataset aside and build our model. First, we will split our training dataset further into a training and a validation dataset. This allows us to build our model on 70% of the data and then validate the model performation on the remaining 30% in the validation dataset. This helps identify potential overfitting the model to the training dataset. In the interest of reproducibility, we set the seed before partitioning the data.
+
+```{r}
+set.seed(4444)
+inTrain = createDataPartition(lift_train_final$classe, p = .70, list=FALSE)
+training = lift_train_final[inTrain,]
+validation = lift_train_final[-inTrain,]
+dim(training)
+dim(validation)
+```
+
+###Model Building
+
+For our model, we will use a Random Forest technique. For purposes of tuning the model, the tuneGrid and ntree options are included in the code. Mtry equals the number of variables to try at each tree and ntree is the number of trees to grow. We used mtry = 7, which is the square root of the number of columns in our data. We can see from our final model output, that this model appears to perform quite well. The OOB (out of bag) error rate = 0.26%.
+
+```{r, warning=FALSE, message=FALSE}
+library(randomForest)
+fit <- train(classe ~., method="rf", data=training, ntree=500, tuneGrid = data.frame(.mtry = 7), allowParallel=TRUE )
+
+fit$finalModel
+
+```
+
+###Predicting and Testing
+
+Now that we have successfully built our model, let's check its accuracy by predicting the "classe" of the subjects in our validation dataset. We run the predict function to score our validation dataset and then the confusionMatrix function to see how well the model predicted. The accuracy rate = 99.76%, so again the final model predicts quite well. 
+
+```{r}
+predict <- predict(fit, newdata = validation)
+
+confusionMatrix(predict, validation$classe)
+```
+
+Finally, we need to score our holdout/test dataset of 20 subjects using the same prediction function.
+
+```{r}
+predict_test <- predict(fit, newdata = lift_test_final)
+
+predict_test
+```
+
+###Conclusion
+
+Random forest is a highly accurate method for constructing a prediction model, as we can see from this analysis. The downside of this technique is a significant loss of interpretability. While we can now predict with a high degree of accurancy what the "classe" will be for a given subject, we have little to no new knowledge of the predictive variables themselves or how they are influencing "classe". 
